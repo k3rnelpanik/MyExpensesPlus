@@ -173,4 +173,8 @@
     <string name="flag_inactive">"Inaktiv"</string>
     <string name="count">"Tæl"</string>
     <string name="empty">"Tom"</string>
+    <string name="options">"Valgmuligheder"</string>
+    <string name="reports">"Rapporter"</string>
+    <string name="tools">Funktioner</string>
+    <string name="actions">"Handlinger"</string>
 </resources>

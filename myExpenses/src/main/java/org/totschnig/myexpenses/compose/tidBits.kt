@@ -36,8 +36,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.dimensionResource
 import androidx.compose.ui.res.stringResource
@@ -131,7 +133,7 @@ fun DonutInABox(
                 cap = 100f,
                 gapWidthDegrees = 0f,
                 gapAngleDegrees = 0f,
-                strokeWidth = context.resources.getDimension(R.dimen.progress_donut_stroke_width),
+                strokeWidth = LocalResources.current.getDimension(R.dimen.progress_donut_stroke_width),
                 strokeCap = StrokeCap.Butt,
                 sections = DisplayProgress.calcProgressVisualRepresentation(
                     progress.coerceAtLeast(
@@ -293,4 +295,13 @@ fun LazyListScope.simpleStickyHeader(content: @Composable (Modifier) -> Unit) {
             }
         }
     }
+}
+
+/**
+ * Returns a high-contrast content color (Black or White)
+ * for any arbitrary background color.
+ */
+fun Color.calculateOnColor(): Color {
+    // luminance() returns a value between 0.0 (Black) and 1.0 (White)
+    return if (this.luminance() > 0.5f) Color.Black else Color.White
 }

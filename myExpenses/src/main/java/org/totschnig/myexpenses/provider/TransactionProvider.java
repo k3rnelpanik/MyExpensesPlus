@@ -15,6 +15,49 @@
 
 package org.totschnig.myexpenses.provider;
 
+import android.content.ContentProviderOperation;
+import android.content.ContentProviderResult;
+import android.content.ContentResolver;
+import android.content.ContentUris;
+import android.content.ContentValues;
+import android.content.OperationApplicationException;
+import android.content.UriMatcher;
+import android.database.Cursor;
+import android.database.MatrixCursor;
+import android.database.sqlite.SQLiteConstraintException;
+import android.net.Uri;
+import android.os.Bundle;
+import android.text.TextUtils;
+
+import org.totschnig.myexpenses.BuildConfig;
+import org.totschnig.myexpenses.db2.RepositoryPaymentMethodKt;
+import org.totschnig.myexpenses.model.AccountGrouping;
+import org.totschnig.myexpenses.model.CrStatus;
+import org.totschnig.myexpenses.model.sort.Sort;
+import org.totschnig.myexpenses.preference.PrefKey;
+import org.totschnig.myexpenses.provider.filter.Operation;
+import org.totschnig.myexpenses.sync.json.TransactionChange;
+import org.totschnig.myexpenses.util.Preconditions;
+import org.totschnig.myexpenses.util.Utils;
+import org.totschnig.myexpenses.util.crashreporting.CrashHandler;
+import org.totschnig.myexpenses.util.cursor.PlanInfoCursorWrapper;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.annotation.VisibleForTesting;
+import androidx.sqlite.db.SupportSQLiteDatabase;
+import androidx.sqlite.db.SupportSQLiteOpenHelper;
+import androidx.sqlite.db.SupportSQLiteQueryBuilder;
+import timber.log.Timber;
+
 import static android.database.sqlite.SQLiteDatabase.CONFLICT_IGNORE;
 import static android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE;
 import static org.totschnig.myexpenses.provider.ArchiveKt.archive;
@@ -62,7 +105,6 @@ import static org.totschnig.myexpenses.provider.ConstantsKt.KEY_TEMPLATEID;
 import static org.totschnig.myexpenses.provider.ConstantsKt.KEY_TITLE;
 import static org.totschnig.myexpenses.provider.ConstantsKt.KEY_TRANSACTIONID;
 import static org.totschnig.myexpenses.provider.ConstantsKt.KEY_TRANSFER_ACCOUNT;
-import static org.totschnig.myexpenses.provider.ConstantsKt.KEY_TRANSFER_PEER;
 import static org.totschnig.myexpenses.provider.ConstantsKt.KEY_TYPE;
 import static org.totschnig.myexpenses.provider.ConstantsKt.KEY_TYPE_SORT_KEY;
 import static org.totschnig.myexpenses.provider.ConstantsKt.KEY_URI;
@@ -107,10 +149,9 @@ import static org.totschnig.myexpenses.provider.ConstantsKt.VIEW_PRIORITIZED_PRI
 import static org.totschnig.myexpenses.provider.ConstantsKt.VIEW_TEMPLATES_ALL;
 import static org.totschnig.myexpenses.provider.ConstantsKt.VIEW_TEMPLATES_EXTENDED;
 import static org.totschnig.myexpenses.provider.DataBaseAccount.HOME_AGGREGATE_ID;
-import static org.totschnig.myexpenses.provider.DatabaseConstants.WHERE_DEPENDENT;
 import static org.totschnig.myexpenses.provider.DatabaseConstants.WHERE_NOT_SPLIT;
-import static org.totschnig.myexpenses.provider.DatabaseConstants.WHERE_SELF_OR_PEER;
 import static org.totschnig.myexpenses.provider.DatabaseConstants.WHERE_SELF_OR_RELATED;
+import static org.totschnig.myexpenses.provider.DbConstantsKt.CATEGORY_DEPTH_QUERY;
 import static org.totschnig.myexpenses.provider.DbConstantsKt.CTE_SEARCH;
 import static org.totschnig.myexpenses.provider.DbConstantsKt.accountWithTypeAndFlag;
 import static org.totschnig.myexpenses.provider.DbConstantsKt.amountCteForDebts;
@@ -141,49 +182,6 @@ import static org.totschnig.myexpenses.provider.MoreDbUtilsKt.tableForPaymentMet
 import static org.totschnig.myexpenses.provider.SyncContract.METHOD_APPLY_CHANGES;
 import static org.totschnig.myexpenses.util.PermissionHelper.PermissionGroup.CALENDAR;
 
-import android.content.ContentProviderOperation;
-import android.content.ContentProviderResult;
-import android.content.ContentResolver;
-import android.content.ContentUris;
-import android.content.ContentValues;
-import android.content.OperationApplicationException;
-import android.content.UriMatcher;
-import android.database.Cursor;
-import android.database.MatrixCursor;
-import android.database.sqlite.SQLiteConstraintException;
-import android.net.Uri;
-import android.os.Bundle;
-import android.text.TextUtils;
-
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.annotation.VisibleForTesting;
-import androidx.sqlite.db.SupportSQLiteDatabase;
-import androidx.sqlite.db.SupportSQLiteOpenHelper;
-import androidx.sqlite.db.SupportSQLiteQueryBuilder;
-
-import org.totschnig.myexpenses.BuildConfig;
-import org.totschnig.myexpenses.db2.RepositoryPaymentMethodKt;
-import org.totschnig.myexpenses.model.CrStatus;
-import org.totschnig.myexpenses.model.Sort;
-import org.totschnig.myexpenses.preference.PrefKey;
-import org.totschnig.myexpenses.provider.filter.Operation;
-import org.totschnig.myexpenses.sync.json.TransactionChange;
-import org.totschnig.myexpenses.util.Preconditions;
-import org.totschnig.myexpenses.util.Utils;
-import org.totschnig.myexpenses.util.crashreporting.CrashHandler;
-import org.totschnig.myexpenses.util.cursor.PlanInfoCursorWrapper;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
-import java.util.Objects;
-
-import timber.log.Timber;
-
 public class TransactionProvider extends BaseTransactionProvider {
 
   public static final String AUTHORITY = BuildConfig.APPLICATION_ID;
@@ -196,6 +194,8 @@ public class TransactionProvider extends BaseTransactionProvider {
       Uri.parse("content://" + AUTHORITY + "/accountsbase");
   public static final Uri ACCOUNTS_AGGREGATE_URI =
       Uri.parse("content://" + AUTHORITY + "/accounts/aggregates");
+  public static final Uri AGGREGATE_V2_URI =
+      Uri.parse("content://" + AUTHORITY + "/aggregates");
   //returns accounts with aggregate accounts, limited to id and label
   public static final Uri ACCOUNTS_MINIMAL_URI =
       Uri.parse("content://" + AUTHORITY + "/accountsMinimal");
@@ -343,6 +343,7 @@ public class TransactionProvider extends BaseTransactionProvider {
   public static final String QUERY_PARAMETER_WITH_COUNT = "count";
   public static final String QUERY_PARAMETER_WITH_INSTANCE = "withInstance";
   public static final String QUERY_PARAMETER_HIERARCHICAL = "hierarchical";
+  public static final String QUERY_PARAMETER_DEPTH = "depth";
   public static final String QUERY_PARAMETER_CATEGORY_SEPARATOR = "categorySeparator";
   public static final String QUERY_PARAMETER_SHORTEN_COMMENT = "shortenComment";
   public static final String QUERY_PARAMETER_SEARCH = "search";
@@ -455,6 +456,8 @@ public class TransactionProvider extends BaseTransactionProvider {
         if (sortOrder == null) {
           sortOrder = KEY_DATE + " DESC";
         }
+        sortOrder += ", " + KEY_ROWID + (sortOrder.contains(" DESC") ? " DESC" : " ASC");
+
         boolean forHome = uri.getQueryParameter(KEY_ACCOUNTID) == null && uri.getQueryParameter(KEY_CURRENCY) == null && uri.getQueryParameter(KEY_PARENTID) == null;
         if (forCatId != null) {
           String selector = transactionQuerySelector(uri, CTE_SEARCH);
@@ -513,6 +516,9 @@ public class TransactionProvider extends BaseTransactionProvider {
         if (mappedObjects != null) {
           String sql = categoryTreeWithMappedObjects(selection, projection, mappedObjects.equals("2"));
           return measureAndLogQuery(db, uri, sql, selection, selectionArgs);
+        }
+        if (uri.getBooleanQueryParameter(QUERY_PARAMETER_DEPTH, false)) {
+          return measureAndLogQuery(db, uri, CATEGORY_DEPTH_QUERY, null, null);
         }
         if (uri.getBooleanQueryParameter(QUERY_PARAMETER_HIERARCHICAL, false)) {
           final boolean withSum = projection != null && Arrays.asList(projection).contains(KEY_SUM);
@@ -585,6 +591,8 @@ public class TransactionProvider extends BaseTransactionProvider {
                     Sort.Companion.preferredOrderByForAccounts(PrefKey.SORT_ORDER_ACCOUNTS, prefHandler, Sort.LABEL, getCollate(), null);
             if (uri.getBooleanQueryParameter(QUERY_PARAMETER_BALANCE_SHEET, false)) {
               sortOrder = KEY_TYPE_SORT_KEY + " DESC, " + sortOrder;
+            } else {
+              sortOrder = getSortByFlag() + sortOrder;
             }
           }
           if (projection != null) {
@@ -617,10 +625,33 @@ public class TransactionProvider extends BaseTransactionProvider {
           projection = aggregateHomeProjection(projection);
         } else {
           qb = SupportSQLiteQueryBuilder.builder(TABLE_CURRENCIES);
-          projection = aggregateProjection(projection);
+          projection = aggregateCurrencyProjection(projection);
           additionalWhere.append(TABLE_CURRENCIES + "." + KEY_ROWID + "= abs(").append(currencyId).append(")");
         }
         break;
+      case AGGREGATE_V2:
+        AccountGrouping<?> grouping = AccountGrouping.Companion.valueOf(uri.getPathSegments().get(1));
+        String group = uri.getPathSegments().get(2);
+        if (grouping.equals(AccountGrouping.CURRENCY.INSTANCE)) {
+          qb = SupportSQLiteQueryBuilder.builder(TABLE_CURRENCIES);
+          projection = aggregateCurrencyProjection(projection);
+          //group is currency code
+          additionalWhere.append(KEY_CODE).append("='").append(group).append("'");
+        } else if (grouping.equals(AccountGrouping.FLAG.INSTANCE)) {
+          qb = SupportSQLiteQueryBuilder.builder(TABLE_ACCOUNT_FLAGS);
+          projection = aggregateFlagProjection(projection);
+          //group is flag id
+          additionalWhere.append(KEY_ROWID).append("=").append(group);
+        } else if (grouping.equals(AccountGrouping.TYPE.INSTANCE)) {
+          qb = SupportSQLiteQueryBuilder.builder(TABLE_ACCOUNT_TYPES);
+          projection = aggregateTypeProjection(projection);
+          //group is type id
+          additionalWhere.append(KEY_ROWID).append("=").append(group);
+        } else {
+          qb = SupportSQLiteQueryBuilder.builder(TABLE_ACCOUNTS);
+          projection = aggregateHomeProjection(projection);
+        }
+          break;
       case ACCOUNT_ID:
         qb = SupportSQLiteQueryBuilder.builder(getAccountsWithExchangeRate());
         additionalWhere.append(TABLE_ACCOUNTS + "." + KEY_ROWID + "=").append(uri.getPathSegments().get(1));
@@ -1226,36 +1257,7 @@ public class TransactionProvider extends BaseTransactionProvider {
     maybeSetDirty(uriMatch);
     switch (uriMatch) {
       case TRANSACTIONS -> count = db.delete(TABLE_TRANSACTIONS, where, whereArgs);
-      case TRANSACTION_ID -> {
-        //maybe TODO ?: where and whereArgs are ignored
-        segment = uri.getPathSegments().get(1);
-        //when we are deleting a transfer whose peer is part of a split, we cannot delete the peer,
-        //because the split would be left in an invalid state, hence we transform the peer to a normal split part
-        //first we find out the account label
-        db.beginTransaction();
-        try {
-          ContentValues args = new ContentValues();
-          args.putNull(KEY_TRANSFER_ACCOUNT);
-          args.putNull(KEY_TRANSFER_PEER);
-          MoreDbUtilsKt.update(db, TABLE_TRANSACTIONS,
-                  args,
-                  KEY_TRANSFER_PEER + " = ? AND " + KEY_PARENTID + " IS NOT null",
-                  new String[]{segment});
-          //we delete the transaction, its children and its transfer peer, and transfer peers of its children
-          if (uri.getQueryParameter(QUERY_PARAMETER_MARK_VOID) == null) {
-            //we delete the parent separately, so that the changes trigger can correctly record the parent uuid
-            count = db.delete(TABLE_TRANSACTIONS, WHERE_DEPENDENT, new String[]{segment, segment});
-            count += db.delete(TABLE_TRANSACTIONS, WHERE_SELF_OR_PEER, new String[]{segment, segment});
-          } else {
-            ContentValues v = new ContentValues();
-            v.put(KEY_CR_STATUS, CrStatus.VOID.name());
-            count = MoreDbUtilsKt.update(db, TABLE_TRANSACTIONS, v, WHERE_SELF_OR_RELATED, new String[]{segment, segment, segment});
-          }
-          db.setTransactionSuccessful();
-        } finally {
-          db.endTransaction();
-        }
-      }
+      case TRANSACTION_ID -> count = deleteTransaction(db, uri);
       case TEMPLATES -> count = db.delete(TABLE_TEMPLATES, where, whereArgs);
       case TEMPLATE_ID -> count = db.delete(TABLE_TEMPLATES,
               KEY_ROWID + " = " + uri.getLastPathSegment() + prefixAnd(where), whereArgs);
@@ -1263,9 +1265,6 @@ public class TransactionProvider extends BaseTransactionProvider {
       case ACCOUNTS -> count = db.delete(TABLE_ACCOUNTS, where, whereArgs);
       case ACCOUNT_ID -> count = db.delete(TABLE_ACCOUNTS,
               KEY_ROWID + " = " + uri.getLastPathSegment() + prefixAnd(where), whereArgs);
-
-      //update aggregate cursor
-      //getContext().getContentResolver().notifyChange(AGGREGATES_URI, null);
       case CATEGORIES ->
               count = db.delete(TABLE_CATEGORIES, KEY_ROWID + " != " + SPLIT_CATID + prefixAnd(where),
                       whereArgs);
@@ -1796,6 +1795,7 @@ public class TransactionProvider extends BaseTransactionProvider {
     URI_MATCHER.addURI(AUTHORITY, "currencies", CURRENCIES);
     URI_MATCHER.addURI(AUTHORITY, "currencies/" + URI_SEGMENT_CHANGE_FRACTION_DIGITS + "/*/#", CURRENCIES_CHANGE_FRACTION_DIGITS);
     URI_MATCHER.addURI(AUTHORITY, "accounts/aggregates/*", AGGREGATE_ID);
+    URI_MATCHER.addURI(AUTHORITY, "aggregates/*/*", AGGREGATE_V2);
     URI_MATCHER.addURI(AUTHORITY, "methods_transactions", MAPPED_METHODS);
     URI_MATCHER.addURI(AUTHORITY, "dual", DUAL);
     URI_MATCHER.addURI(AUTHORITY, "eventcache", EVENT_CACHE);

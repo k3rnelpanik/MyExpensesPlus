@@ -277,16 +277,18 @@ abstract class BaseActivity : AppCompatActivity(), MessageDialogFragment.Message
         get() = (supportFragmentManager.findFragmentByTag(PROGRESS_TAG) as? ProgressDialogFragment)
 
     fun copyToClipboard(text: String) {
-        showSnackBar(
-            try {
-                ContextCompat.getSystemService(this, ClipboardManager::class.java)
-                    ?.setPrimaryClip(ClipData.newPlainText(null, text))
+        try {
+            ContextCompat.getSystemService(this, ClipboardManager::class.java)!!
+                .setPrimaryClip(ClipData.newPlainText(null, text))
+        } catch (e: RuntimeException) {
+            report(e)
+            showSnackBar(e.safeMessage)
+        }
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
+            showSnackBar(
                 "${getString(R.string.toast_text_copied)}: $text"
-            } catch (e: RuntimeException) {
-                report(e)
-                e.safeMessage
-            }
-        )
+            )
+        }
     }
 
     fun sendEmail(
@@ -346,7 +348,7 @@ abstract class BaseActivity : AppCompatActivity(), MessageDialogFragment.Message
         ) {
             requestNotificationPermission(PermissionHelper.PERMISSIONS_REQUEST_NOTIFICATIONS_WEBUI)
         } else {
-            prefHandler.putBoolean(PrefKey.UI_WEB, true)
+            baseViewModel.toggleWebUi(true)
             onWebUiActivated()
         }
     }
@@ -736,7 +738,8 @@ abstract class BaseActivity : AppCompatActivity(), MessageDialogFragment.Message
                 try {
                     startActivity(intent)
                 } catch (_: ActivityNotFoundException) {
-                    Toast.makeText(this, "Could not open Security Settings", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "Could not open Security Settings", Toast.LENGTH_SHORT)
+                        .show()
                 }
             }
         )
@@ -992,18 +995,6 @@ abstract class BaseActivity : AppCompatActivity(), MessageDialogFragment.Message
         showSnackBar(getText(message), duration)
     }
 
-    @JvmOverloads
-    fun showSnackBar(
-        message: CharSequence,
-        duration: Int = Snackbar.LENGTH_LONG,
-        snackBarAction: SnackbarAction? = null,
-        callback: Snackbar.Callback? = null,
-    ) {
-        snackBarContainer?.let {
-            showSnackBar(message, duration, snackBarAction, callback, it)
-        } ?: showSnackBarFallBack(message)
-    }
-
     private fun showSnackBarFallBack(message: CharSequence) {
         reportMissingSnackBarContainer()
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
@@ -1020,7 +1011,7 @@ abstract class BaseActivity : AppCompatActivity(), MessageDialogFragment.Message
         message: CharSequence,
         total: Int = 0,
         progress: Int = 0,
-        container: View? = null,
+        container: View? = snackBarContainer,
     ) {
         (container ?: snackBarContainer)?.also {
             val displayMessage = if (total > 0) "$message ($progress/$total)" else message
@@ -1063,29 +1054,31 @@ abstract class BaseActivity : AppCompatActivity(), MessageDialogFragment.Message
         }
     }
 
+    @JvmOverloads
     fun showSnackBar(
         message: CharSequence,
-        duration: Int,
-        snackBarAction: SnackbarAction?,
-        callback: Snackbar.Callback?,
-        container: View,
+        duration: Int = Snackbar.LENGTH_LONG,
+        snackBarAction: SnackbarAction? = null,
+        callback: Snackbar.Callback? = null,
+        container: View? = null,
     ) {
-        snackBar = Snackbar.make(container, message, duration).apply {
-            UiUtils.increaseSnackbarMaxLines(this)
-            if (snackBarAction != null) {
-                setAction(snackBarAction.label, snackBarAction.listener)
-            }
-            if (callback != null) {
-                addCallback(callback)
-            }
-            addCallback(object : Snackbar.Callback() {
-                override fun onDismissed(transientBottomBar: Snackbar?, event: Int) {
-                    snackBar = null
+        (container ?: snackBarContainer)?.also {
+            snackBar = Snackbar.make(it, message, duration).apply {
+                UiUtils.increaseSnackbarMaxLines(this)
+                if (snackBarAction != null) {
+                    setAction(snackBarAction.label, snackBarAction.listener)
                 }
-            })
-            show()
-        }
-
+                if (callback != null) {
+                    addCallback(callback)
+                }
+                addCallback(object : Snackbar.Callback() {
+                    override fun onDismissed(transientBottomBar: Snackbar?, event: Int) {
+                        snackBar = null
+                    }
+                })
+                show()
+            }
+        } ?: showSnackBarFallBack(message)
     }
 
     fun dismissSnackBar() {
@@ -1468,7 +1461,7 @@ abstract class BaseActivity : AppCompatActivity(), MessageDialogFragment.Message
         (application as MyApplication).invalidateHomeCurrency()
         if (!isFinishing) {
             finishAffinity()
-            startActivity(Intent(this, MyExpenses::class.java).apply {
+            startActivity(Intent(this, prefHandler.mainScreenClass).apply {
                 addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
             })
         }
@@ -1501,11 +1494,6 @@ abstract class BaseActivity : AppCompatActivity(), MessageDialogFragment.Message
             }
         }
     }
-
-    val createAccountIntent
-        get() = Intent(this, AccountEdit::class.java).apply {
-            putExtra(KEY_COLOR, Account.DEFAULT_COLOR)
-        }
 
     fun showTransferAccountMissingMessage() {
         showMessage(
@@ -1731,7 +1719,7 @@ abstract class BaseActivity : AppCompatActivity(), MessageDialogFragment.Message
         }
     }
 
-    suspend fun StateFlow<Result<Pair<Uri, String>>?>.collectPrintResult(): Nothing =
+    suspend fun StateFlow<Result<Pair<Uri, String>>?>.collectPrintResult() {
         collect { result ->
             result?.let {
                 dismissSnackBar()
@@ -1761,6 +1749,7 @@ abstract class BaseActivity : AppCompatActivity(), MessageDialogFragment.Message
                 onPdfResultProcessed()
             }
         }
+    }
 
     open fun onPdfResultProcessed() {
 

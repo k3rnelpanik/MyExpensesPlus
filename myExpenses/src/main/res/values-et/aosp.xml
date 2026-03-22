@@ -109,4 +109,7 @@
     <string name="flag_inactive">"Mitteaktiivne"</string>
     <string name="count">"Arv"</string>
     <string name="empty">"Tühi"</string>
+    <string name="options">"Valikud"</string>
+    <string name="reports">"Aruanded"</string>
+    <string name="actions">"Toimingud"</string>
 </resources>

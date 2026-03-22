@@ -47,7 +47,7 @@ import org.totschnig.myexpenses.provider.filter.PayeeCriterion
 import org.totschnig.myexpenses.provider.filter.SimpleCriterion
 import org.totschnig.myexpenses.provider.filter.TagCriterion
 import org.totschnig.myexpenses.provider.filter.TransferCriterion
-import org.totschnig.myexpenses.viewmodel.data.BaseAccount
+import org.totschnig.myexpenses.viewmodel.data.PageAccount
 import kotlin.reflect.KClass
 
 interface FilterHandlerScope {
@@ -97,7 +97,7 @@ interface FilterHandlerScope {
 
 @Composable
 fun FilterHandler(
-    account: BaseAccount,
+    account: PageAccount,
     requestKey: String,
     onResult: (SimpleCriterion<*>?, SimpleCriterion<*>?) -> Unit,
     content: @Composable FilterHandlerScope.() -> Unit
@@ -175,7 +175,7 @@ fun FilterHandler(
         }
 
         override fun handleCategoryEdit(categoryCriterion: CategoryCriterion?) {
-            getCategory.launch(account.id to categoryCriterion)
+            getCategory.launch(account to categoryCriterion)
         }
 
         override fun handleMethodEdit(methodCriterion: MethodCriterion?) {
@@ -186,11 +186,11 @@ fun FilterHandler(
         }
 
         override fun handlePayeeEdit(payeeCriterion: PayeeCriterion?) {
-            getPayee.launch(account.id to payeeCriterion)
+            getPayee.launch(account to payeeCriterion)
         }
 
         override fun handleTagEdit(tagCriterion: TagCriterion?) {
-            getTags.launch(account.id to tagCriterion)
+            getTags.launch(account to tagCriterion)
         }
 
         override fun handleTransferEdit(transferCriterion: TransferCriterion?) {

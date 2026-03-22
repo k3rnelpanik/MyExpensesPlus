@@ -1,0 +1,319 @@
+package org.totschnig.myexpenses.activity
+
+import android.os.Bundle
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.dimensionResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import org.totschnig.myexpenses.R
+import org.totschnig.myexpenses.adapter.SortableItem
+import org.totschnig.myexpenses.compose.AppTheme
+import org.totschnig.myexpenses.compose.accounts.AccountEvent
+import org.totschnig.myexpenses.compose.accounts.AccountEventHandler
+import org.totschnig.myexpenses.compose.main.AppEvent
+import org.totschnig.myexpenses.compose.main.AppEventHandler
+import org.totschnig.myexpenses.compose.main.MainScreenAdaptive
+import org.totschnig.myexpenses.compose.transactions.Action
+import org.totschnig.myexpenses.dialog.SortSelect
+import org.totschnig.myexpenses.dialog.SortUtilityDialogFragment
+import org.totschnig.myexpenses.injector
+import org.totschnig.myexpenses.model.ContribFeature
+import org.totschnig.myexpenses.model.sort.Sort
+import org.totschnig.myexpenses.preference.PrefKey
+import org.totschnig.myexpenses.preference.enumValueOrDefault
+import org.totschnig.myexpenses.provider.KEY_SORT_KEY
+import org.totschnig.myexpenses.provider.triggerAccountListRefresh
+import org.totschnig.myexpenses.viewmodel.MyExpensesV2ViewModel
+import org.totschnig.myexpenses.viewmodel.SumInfo
+import org.totschnig.myexpenses.viewmodel.data.BaseAccount
+import org.totschnig.myexpenses.viewmodel.data.FullAccount
+import java.util.Optional
+
+enum class StartScreen {
+    LastVisited, Accounts, Transactions, BalanceSheet
+}
+
+/**
+ * TBD: ReviewManager, AdManager, Tests,
+ * Help, Tell a friend,
+ * initial state after first install
+ */
+class MyExpensesV2 : BaseMyExpenses<MyExpensesV2ViewModel>(), SortUtilityDialogFragment.OnConfirmListener {
+
+    override fun handleRootWindowInsets() {}
+
+    override val currentAccount: BaseAccount?
+        get() = viewModel.accountList.value.find { it.id == selectedAccountId }
+
+    @get:Composable
+    override val transactionListWindowInsets: WindowInsets
+        get() = WindowInsets()
+
+    override val accountCount: Int
+        get() = viewModel.accountList.value.size
+
+    override fun finishActionMode() {
+        viewModel.selectionState.value = emptyList()
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        viewModel = ViewModelProvider(this)[MyExpensesV2ViewModel::class.java]
+        with(injector) {
+            inject(viewModel)
+        }
+
+        setContent {
+            AppTheme {
+                val result = viewModel.accountDataV2.collectAsStateWithLifecycle().value
+                val availableFilters =
+                    viewModel.availableGroupFilters.collectAsStateWithLifecycle().value
+                when {
+                    result?.isFailure == true -> {
+                        val (message, forceQuit) = result.exceptionOrNull()!!
+                            .processDataLoadingFailure()
+                        Column(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(dimensionResource(R.dimen.padding_main_screen)),
+                            // These two lines replace the Box's contentAlignment and the Column's horizontalAlignment
+                            verticalArrangement = Arrangement.Center,
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(message)
+                            // Applying spacing manually since we are using Arrangement.Center
+                            // which takes precedence over Arrangement.spacedBy
+                            Spacer(modifier = Modifier.height(4.dp))
+                            if (!forceQuit) {
+                                Button(onClick = {
+                                    dispatchCommand(
+                                        R.id.SAFE_MODE_COMMAND,
+                                        null
+                                    )
+                                }) {
+                                    Text(stringResource(R.string.safe_mode))
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                            }
+
+                            Button(onClick = { dispatchCommand(R.id.QUIT_COMMAND, null) }) {
+                                Text(stringResource(R.string.button_label_close))
+                            }
+                        }
+
+                    }
+
+                    result == null || availableFilters == null -> {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    }
+
+                    else -> {
+                        val selectedAccountIdFromState =
+                            viewModel.selectedAccountId.collectAsState().value
+                        LaunchedEffect(
+                            viewModel.accountList.collectAsState().value.isNotEmpty(),
+                            selectedAccountIdFromState,
+                            viewModel.activeFilter.collectAsState().value //reloading when filter changes, because aggregate accounts have same id (0)
+                        ) {
+                            with(currentAccount) {
+                                if (this != null) {
+                                    sumInfo.value = SumInfo.EMPTY
+                                    viewModel.sumInfo(toPageAccount(this@MyExpensesV2)).collect {
+                                        sumInfo.value = it
+                                    }
+                                }
+                            }
+                        }
+                        val accounts = result.getOrThrow()
+                        val banks = viewModel.banks.collectAsState()
+                        val showSortDialog = rememberSaveable { mutableStateOf(false) }
+
+                        MainScreenAdaptive(
+                            viewModel,
+                            accounts,
+                            availableFilters,
+                            selectedAccountId = selectedAccountIdFromState,
+                            onAppEvent = object : AppEventHandler {
+                                override fun invoke(event: AppEvent) {
+                                    when (event) {
+
+                                        AppEvent.CreateAccount -> createAccount()
+                                        is AppEvent.CreateTransaction ->
+                                            if (preCreateRowCheckForSealed()) {
+                                                when (event.action) {
+                                                    Action.Scan -> contribFeatureRequested(
+                                                        ContribFeature.OCR,
+                                                        true
+                                                    )
+
+                                                    else -> createRow(
+                                                        event.action.type,
+                                                        event.transferEnabled,
+                                                        event.action == Action.Income
+                                                    )
+                                                }
+                                            }
+
+                                        is AppEvent.SetAccountGrouping -> viewModel.setGrouping(
+                                            event.newGrouping
+                                        )
+
+                                        is AppEvent.SetTransactionGrouping -> viewModel.persistGroupingV2(
+                                            event.grouping
+                                        )
+
+                                        is AppEvent.SetTransactionSort -> viewModel.persistSortV2(
+                                            event.transactionSort
+                                        )
+
+                                        AppEvent.PrintBalanceSheet -> printBalanceSheet()
+                                        is AppEvent.ContextMenuItemClicked -> onContextItemClicked(
+                                            event.itemId
+                                        )
+
+                                        is AppEvent.MenuItemClicked -> dispatchCommand(
+                                            event.itemId,
+                                            event.tag
+                                        )
+
+                                        AppEvent.Sort -> showSortDialog.value = true
+
+                                        is AppEvent.CopyToClipBoard -> copyToClipboard(event.text)
+                                    }
+                                }
+                            },
+                            onAccountEvent = object : AccountEventHandler {
+                                override fun invoke(
+                                    event: AccountEvent,
+                                    account: FullAccount,
+                                ) {
+                                    when (event) {
+                                        is AccountEvent.Delete -> confirmAccountDelete(account)
+                                        is AccountEvent.Edit -> editAccount(account)
+                                        is AccountEvent.SetFlag -> viewModel.setFlag(
+                                            account.id,
+                                            event.flagId
+                                        )
+
+                                        is AccountEvent.ToggleDynamicExchangeRate ->
+                                            toggleDynamicExchangeRate(account)
+
+                                        is AccountEvent.ToggleExcludeFromTotals -> toggleExcludeFromTotals(
+                                            account
+                                        )
+
+                                        is AccountEvent.ToggleSealed -> toggleAccountSealed(account)
+                                    }
+                                }
+
+                            },
+                            onPrepareContextMenuItem = ::isContextMenuItemVisible,
+                            onPrepareMenuItem = { itemId -> currentAccount.isMenuItemVisible(itemId) },
+                            flags = viewModel.accountFlags.collectAsState(emptyList()).value,
+                            bankIcon = { modifier, id ->
+                                banks.value.find { it.id == id }
+                                    ?.let { bank ->
+                                        bankingFeature.bankIconRenderer?.invoke(
+                                            modifier,
+                                            bank
+                                        )
+                                    }
+                            }
+                        ) { pageAccount, isCurrent -> Page(pageAccount, accounts.size, isCurrent, v2 = true) }
+
+                        if (showSortDialog.value) {
+                            val sortByFlagFirst = rememberSaveable {
+                                mutableStateOf(false)
+                            }
+                            LaunchedEffect(Unit) {
+                                sortByFlagFirst.value = viewModel.sortByFlagFirst.get()
+                            }
+
+                            val selectedSort = rememberSaveable {
+                                mutableStateOf(
+                                    prefHandler.enumValueOrDefault(
+                                        PrefKey.SORT_ORDER_ACCOUNTS,
+                                        Sort.USAGES
+                                    )
+                                )
+                            }
+                            val scope = rememberCoroutineScope()
+                            AlertDialog(
+                                onDismissRequest = { showSortDialog.value = false },
+                                confirmButton =  {
+                                    Button(onClick = {
+                                        scope.launch {
+                                            prefHandler.putString(PrefKey.SORT_ORDER_ACCOUNTS, selectedSort.value.name)
+                                            viewModel.sortByFlagFirst.set(sortByFlagFirst.value)
+                                            contentResolver.triggerAccountListRefresh()
+                                            showSortDialog.value = false
+                                        }
+                                    }) {
+                                        Text(stringResource(id = android.R.string.ok))
+                                    }
+                                },
+                                text = {
+                                    Column {
+                                        SortSelect(sortByFlagFirst, selectedSort) {
+                                            scope.launch {
+                                                SortUtilityDialogFragment.newInstance(
+                                                    ArrayList(
+                                                        viewModel.accountsMinimal(
+                                                            withAggregates = false,
+                                                            sortOrder = KEY_SORT_KEY
+                                                        ).first()
+                                                            .map { SortableItem(it.id, it.label) }
+                                                    ))
+                                                    .show(supportFragmentManager, "SORT_ACCOUNTS")
+                                            }
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    override suspend fun accountForNewTransaction() = Optional.ofNullable(
+        currentAccount as? FullAccount ?:
+        viewModel.accountDataV2.value?.getOrNull()?.maxByOrNull { it.lastUsed }
+    )
+
+    override fun onSortOrderConfirmed(sortedIds: LongArray) {
+        viewModel.sortAccounts(sortedIds)
+    }
+}

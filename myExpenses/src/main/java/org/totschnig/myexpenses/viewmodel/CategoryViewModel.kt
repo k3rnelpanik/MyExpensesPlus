@@ -46,7 +46,7 @@ import org.totschnig.myexpenses.db2.saveCategory
 import org.totschnig.myexpenses.export.CategoryExporter
 import org.totschnig.myexpenses.export.createFileFailure
 import org.totschnig.myexpenses.model.ExportFormat
-import org.totschnig.myexpenses.model.Sort
+import org.totschnig.myexpenses.model.sort.Sort
 import org.totschnig.myexpenses.model2.CategoryExport
 import org.totschnig.myexpenses.provider.BaseTransactionProvider
 import org.totschnig.myexpenses.provider.BaseTransactionProvider.Companion.ACCOUNTS_MINIMAL_URI_WITH_AGGREGATES
@@ -207,7 +207,7 @@ open class CategoryViewModel(
     }.flatMapLatest { (type, filter, sortOrder) ->
         val (selection, selectionArgs) = joinQueryAndAccountFilter(
             null,
-            savedStateHandle.get<Long>(KEY_ACCOUNTID),
+            savedStateHandle,
             KEY_LABEL_NORMALIZED, KEY_CATID, "_Tree_"
         )
         categoryTree(

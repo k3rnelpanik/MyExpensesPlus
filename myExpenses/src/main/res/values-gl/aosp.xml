@@ -106,4 +106,8 @@
     <string name="flag_inactive">"Inactiva"</string>
     <string name="count">"Conta"</string>
     <string name="empty">"Baleiro"</string>
+    <string name="options">"Opcións"</string>
+    <string name="reports">"Informes"</string>
+    <string name="tools">Ferramentas</string>
+    <string name="actions">"Accións"</string>
 </resources>

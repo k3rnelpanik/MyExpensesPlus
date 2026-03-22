@@ -102,4 +102,7 @@
     <string name="flag_inactive">"Ոչ ակտիվ"</string>
     <string name="count">"Հաշվարկ"</string>
     <string name="empty">"Դատարկ"</string>
+    <string name="options">"Ընտրանքներ"</string>
+    <string name="reports">"Հաշվետվություններ"</string>
+    <string name="actions">"Գործողություններ"</string>
 </resources>

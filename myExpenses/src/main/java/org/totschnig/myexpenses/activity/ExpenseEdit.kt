@@ -124,7 +124,6 @@ import org.totschnig.myexpenses.provider.KEY_URI
 import org.totschnig.myexpenses.ui.AmountInput
 import org.totschnig.myexpenses.ui.ContextAwareRecyclerView
 import org.totschnig.myexpenses.ui.DateButton
-import org.totschnig.myexpenses.ui.DiscoveryHelper
 import org.totschnig.myexpenses.ui.DisplayParty
 import org.totschnig.myexpenses.ui.ExchangeRateEdit
 import org.totschnig.myexpenses.ui.IDiscoveryHelper
@@ -162,6 +161,7 @@ import java.io.Serializable
 import java.math.BigDecimal
 import java.time.LocalDate
 import javax.inject.Inject
+import kotlin.math.sign
 import org.totschnig.myexpenses.viewmodel.data.Template as DataTemplate
 
 
@@ -307,8 +307,8 @@ open class ExpenseEdit : AmountActivity<TransactionEditViewModel>(), ContribIFac
     }
 
     private val createAccountForTransfer =
-        registerForActivityResult(StartActivityForResult()) {
-            if (it.resultCode == RESULT_OK) {
+        registerForActivityResult(AccountEdit.Companion.CreateContract()) {
+            if (it != null) {
                 delegate.restartWithType(TYPE_TRANSFER)
             }
         }
@@ -481,9 +481,12 @@ open class ExpenseEdit : AmountActivity<TransactionEditViewModel>(), ContribIFac
             }
 
             if (splitPart != null) {
+                newInstance = false
                 isSplitPart = true
                 populate(splitPart, false)
-                delegate.setType(intent.getBooleanExtra(KEY_INCOME, false))
+                if (splitPart.amount.amountMinor.sign == 0) {
+                    delegate.setType(intent.getBooleanExtra(KEY_INCOME, false))
+                }
             }
             // fetch the transaction or create a new instance
             else if (task != null) {
@@ -587,7 +590,7 @@ open class ExpenseEdit : AmountActivity<TransactionEditViewModel>(), ContribIFac
                 if (operationType != TYPE_TRANSFER) {
                     discoveryHelper.discover(
                         this, amountInput.typeButton, 1,
-                        DiscoveryHelper.Feature.ExpenseIncomeSwitch
+                        IDiscoveryHelper.Feature.ExpenseIncomeSwitch
                     )
                 }
             }
@@ -963,6 +966,7 @@ open class ExpenseEdit : AmountActivity<TransactionEditViewModel>(), ContribIFac
             createNew = newInstance && prefHandler.getBoolean(saveAndNewPrefKey, false)
             configureFloatingActionButton()
         }
+        viewModel.updateTags(transaction.tags, false)
         invalidateOptionsMenu()
     }
 
@@ -1020,7 +1024,7 @@ open class ExpenseEdit : AmountActivity<TransactionEditViewModel>(), ContribIFac
         if (shouldLoadMethods) {
             loadMethods(currentAccount)
         }
-        discoveryHelper.markDiscovered(DiscoveryHelper.Feature.ExpenseIncomeSwitch)
+        discoveryHelper.markDiscovered(IDiscoveryHelper.Feature.ExpenseIncomeSwitch)
         showCategoryWarning()
     }
 
@@ -1213,7 +1217,7 @@ open class ExpenseEdit : AmountActivity<TransactionEditViewModel>(), ContribIFac
             }
 
             R.id.CREATE_ACCOUNT_FOR_TRANSFER_COMMAND -> {
-                createAccountForTransfer.launch(createAccountIntent)
+                createAccountForTransfer.launch(Unit)
             }
         }
         return false
@@ -1488,10 +1492,17 @@ open class ExpenseEdit : AmountActivity<TransactionEditViewModel>(), ContribIFac
                         getString(R.string.save_transaction_and_new_success),
                         Snackbar.LENGTH_SHORT
                     )
+                    isSaving = false
                 } else doFinish()
             } else {
                 if (delegate.recurrenceSpinner.selectedItem === Recurrence.CUSTOM) {
-                    launchPlanView(true, transaction.planId!!)
+                    if (transaction.planId != null) {
+                        launchPlanView(true, transaction.planId)
+                    } else {
+                        CrashHandler.report(IllegalStateException("PlanId is null"))
+                        hideKeyboard()
+                        doFinish()
+                    }
                 } else { //make sure soft keyboard is closed
                     hideKeyboard()
                     doFinish()
@@ -1522,7 +1533,6 @@ open class ExpenseEdit : AmountActivity<TransactionEditViewModel>(), ContribIFac
                 }
             )
         }
-        isSaving = false
     }
 
     fun launchPlanView(forResult: Boolean, planId: Long) {

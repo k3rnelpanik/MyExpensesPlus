@@ -98,4 +98,7 @@
     <string name="flag_inactive">"Neaktīva"</string>
     <string name="count">"Skaitlis"</string>
     <string name="empty">"Tukšs"</string>
+    <string name="options">"Opcijas"</string>
+    <string name="reports">"Atskaites"</string>
+    <string name="actions">"Darbības"</string>
 </resources>

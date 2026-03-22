@@ -165,19 +165,14 @@ class SyncHandler(
                                 uri,
                                 transactionId
                             )
-                        )
-                            .withSelection(
-                                "$KEY_UUID = ? AND $KEY_ACCOUNTID = ?",
-                                arrayOf(change.uuid, accountId.toString())
-                            )
-                            .build()
+                        ).build()
                     )
                 }
             }
 
             TransactionChange.Type.unsplit -> {
                 ops.add(
-                    ContentProviderOperation.newUpdate(UNSPLIT_URI)
+                    ContentProviderOperation.newUpdate(UNSPLIT_URI.fromSyncAdapter())
                         .withValue(KEY_UUID, change.uuid)
                         .build()
                 )

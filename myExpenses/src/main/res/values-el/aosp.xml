@@ -172,4 +172,8 @@
     <string name="flag_inactive">"Ανενεργή"</string>
     <string name="count">"Πλήθος"</string>
     <string name="empty">"Κενό"</string>
+    <string name="options">"Επιλογές"</string>
+    <string name="reports">"Εκθέσεις"</string>
+    <string name="tools">Εργαλεία</string>
+    <string name="actions">"Ενέργειες"</string>
 </resources>

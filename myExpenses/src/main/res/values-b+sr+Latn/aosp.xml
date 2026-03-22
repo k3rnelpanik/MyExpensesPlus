@@ -71,4 +71,7 @@
     <string name="flag_inactive">"Neaktivno"</string>
     <string name="count">Count"</string>
     <string name="empty">"Prazno"</string>
+    <string name="options">"Opcije"</string>
+    <string name="reports">"Izveštaji"</string>
+    <string name="actions">"Radnje"</string>
 </resources>

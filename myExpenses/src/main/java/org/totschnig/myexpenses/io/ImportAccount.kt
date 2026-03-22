@@ -38,6 +38,11 @@ data class ImportAccount(
             this.type = AccountType.qif2Internal(type)
         }
 
+        fun typeInternal(type: String) = apply {
+            this.type = type
+        }
+
+
         fun memo(memo: String) = apply { this.memo = memo }
         fun desc(desc: String) = apply { this.desc = desc }
         fun openingBalance(openingBalance: BigDecimal) =
@@ -59,7 +64,7 @@ data class ImportAccount(
 
 data class ImportTransaction(
     val date: Date,
-    val valueDAte: Date?,
+    val valueDate: Date?,
     val amount: BigDecimal,
     val payee: String?,
     val memo: String?,
@@ -111,7 +116,7 @@ data class ImportTransaction(
         fun build(): ImportTransaction? = amount?.let {
             ImportTransaction(
                 date = date,
-                valueDAte = valueDate,
+                valueDate = valueDate,
                 amount = it,
                 payee = payee,
                 memo = memo,

@@ -56,7 +56,7 @@ import org.totschnig.myexpenses.model.AccountType
 import org.totschnig.myexpenses.model.CurrencyContext
 import org.totschnig.myexpenses.model.CurrencyUnit
 import org.totschnig.myexpenses.model.Money
-import org.totschnig.myexpenses.model.Sort
+import org.totschnig.myexpenses.model.sort.Sort
 import org.totschnig.myexpenses.model.generateUuid
 import org.totschnig.myexpenses.preference.PrefKey
 import org.totschnig.myexpenses.preference.enumValueOrDefault
@@ -501,7 +501,7 @@ class TransactionEditViewModel(application: Application, savedStateHandle: Saved
         }
 
     /**
-     * as a side effect reads tags and attachments
+     * as a side effect sets attachments
      */
     suspend fun read(
         rowId: Long,
@@ -560,8 +560,6 @@ class TransactionEditViewModel(application: Application, savedStateHandle: Saved
             ).let {
                 TransactionMapper.map(it, currencyContext)
             }
-        }.also {
-            tagsLiveData.postValue(it?.tags)
         }
     }
 

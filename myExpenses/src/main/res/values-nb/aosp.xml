@@ -108,4 +108,7 @@
     <string name="flag_inactive">"Inaktiv"</string>
     <string name="count">"Tell"</string>
     <string name="empty">"Tom"</string>
+    <string name="options">"Alternativer"</string>
+    <string name="reports">"Rapporter"</string>
+    <string name="actions">"Handlinger"</string>
 </resources>
